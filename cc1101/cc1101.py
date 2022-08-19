@@ -83,6 +83,7 @@ class SPI:
         count, data = self._pi.spi_xfer(self._handle, [addr.value | self._READ_BURST, 0])
         return data
 
+
 class ReceivedPacket:
     def __init__(
             self,
@@ -437,6 +438,11 @@ class CC1101:
     def get_pre(self) -> int:
         _, pre, _ = self._split_mdmcfg1()
         return pre
+
+    def set_channel(self, channel: int):
+        if channel > 255:
+            print("Error")
+        self._spi.write_reg(Config.CHANNR, channel)
 
     def set_channel_spacing(self, spacing: float):
         if spacing < 25.390625 or spacing > 405.456543:
