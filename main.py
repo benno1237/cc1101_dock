@@ -25,33 +25,44 @@ class ConnectionTypes(IntEnum):
 
 
 class Main:
-    _WS_PORT = 8001
-    _WS_HOST = "127.0.0.1:"
-    _WS_URI = f"ws://{_WS_HOST}:{_WS_PORT}"
+    _STREAM_PORT = 8001
+    _STREAM_URI = "127.0.0.1:"
 
     def __init__(self):
         self._node_pool: List[NodeBase] = []
         self._connection_type = ConnectionTypes.WEBSERVER
-        self._ws: Optional[websockets.WebSocketServer] = None
+        self._stream_writer: Optional[asyncio.StreamWriter] = None
 
     async def initialize(self):
         if self._connection_type == ConnectionTypes.WEBSERVER:
             try:
-                self._ws = await websockets.connect(uri=self._WS_URI)
-            except (websockets.InvalidHandshake, asyncio.TimeoutError):
-                await self._ws.close()
-                raise NotImplementedError
+                _, self._stream_writer = await asyncio.open_connection(
+                    self._STREAM_URI, self._STREAM_PORT
+                )
+            except Exception as e:
+                # ToDo: handle connection issues
+                raise e
 
         elif self._connection_type == ConnectionTypes.SERIAL:
             # ToDo: initialize serial connection
 
     async def main(self):
         for node in self._node_pool:
+            to_transmit = None
             if node._should_be_polled():
                 await node.poll()
+                to_transmit = await node._wait_for_received()
+            elif node.type == NodeTypes.PUSH:  # Check nodes that push data
+                to_transmit = await node._wait_for_received()
 
-    async def publish(self):
+            if isinstance(to_transmit, str):
+                await self.publish(to_transmit)
+
+
+    async def publish(self, message: str):
         if self._connection_type == ConnectionTypes.WEBSERVER:
+            self._stream_writer.write(message.encode())
+            await self._stream_writer.drain()
 
 
 class NodeBase:
@@ -95,15 +106,24 @@ class NodeBase:
         try:
             data = await asyncio.wait_for(CC1101.receive_data(), timeout=self._node_timeout)
         except asyncio.TimeoutError:
+            # ToDo: handle node timeouts
             raise NotImplementedError
 
-        await self.packet_received(data)
+        to_transmit = await self.packet_received(data)
+        if not isinstance(to_transmit, str):
+            # ToDo: handle different data classes
+            raise NotImplementedError
 
         self._next_poll = datetime.datetime.now(datetime.timezone.utc) + \
                           datetime.timedelta(seconds=self.poll_frequency)
 
-    async def packet_received(self, data: ReceivedPacket):
-        """Overwrite this when subclassing"""
+
+
+        return to_transmit
+
+    async def packet_received(self, data: ReceivedPacket) -> str:
+        """Overwrite this when subclassing
+        Return a string representing the data you want to forward over the TCP stream"""
 
     async def poll(self):
         """Polls the node"""

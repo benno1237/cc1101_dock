@@ -114,6 +114,8 @@ class ReceivedPacket:
         return self._data[2:]
 
 class CC1101:
+    # ToDo: add a way to check the RX Fifo
+    # ToDo: hold Tx/Rx state in memory
     _XOSC_FREQ = 26e6
 
     def __init__(
@@ -123,6 +125,7 @@ class CC1101:
     ) -> None:
         self._spi = SPI(spi_channel, spi_cs_channel)
         self._modulation: Modulation = Modulation.GFSK
+        self._state = 0  # ToDo: change this to an Enum, 0 = Idle, 1 = RX, 2 = TX
 
     def _split_pktctrl1(self) -> Tuple[int, int, int, int]:
         val = self._spi.read_reg(Config.PKTCTRL1)
@@ -227,6 +230,7 @@ class CC1101:
         self._spi.strobe(Strobe.SFTX)
 
     async def receive_data(self):
+        # ToDo: make this stop
         while True:
             if self._spi.read_reg(StatusRegister.RXBYTES) & 0x7F:
                 length = self._spi.read_reg(PTR.RXFIFO).uint
@@ -235,6 +239,15 @@ class CC1101:
 
                 return ReceivedPacket(data)
             await asyncio.sleep(0.001)
+
+    def get_rx_fifo(self):
+        if self._state != 1:  # ToDo: change this to enum
+            # ToDo: alarm users of wrong state
+            raise NotImplementedError
+
+        if self._spi.read_status_reg(StatusRegister.RXBYTES):
+            return True
+
 
     def reset(self):
         self._spi._pi.write(self._spi.CS, 0)
