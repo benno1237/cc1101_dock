@@ -1,9 +1,10 @@
-from enum import IntEnum, Enum
+from enum import IntEnum
 
 _CS_PINS = {
     0: {0: 8, 1: 7},
     1: {0: 18, 1: 17, 2: 16},
 }
+
 
 class Config(IntEnum):
     IOCFG2 = 0x00
@@ -53,6 +54,7 @@ class Config(IntEnum):
     TEST1 = 0x2D
     TEST0 = 0x2E
 
+
 class Strobe(IntEnum):
     SRES = 0x30
     SFSTXON = 0x31
@@ -69,6 +71,7 @@ class Strobe(IntEnum):
     SWORRST = 0x3C
     SNOP = 0x3D
 
+
 class StatusRegister(IntEnum):
     PARTNUM = 0x30
     VERSION = 0x31
@@ -83,14 +86,22 @@ class StatusRegister(IntEnum):
     TXBYTES = 0x3A
     RXBYTES = 0x3B
 
+
 class PTR(IntEnum):
     PATABLE = 0x3E
     TXFIFO = 0x3F
     RXFIFO = 0x3F
 
-class Modulation(Enum):
+
+class Modulation(IntEnum):
     FSK2 = 0
     GFSK = 1
     ASK = 3
     FSK4 = 4
     MSK = 7
+
+
+class State(IntEnum):
+    IDLE = 0
+    RX = 1
+    TX = 2

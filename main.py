@@ -1,6 +1,5 @@
 import datetime
 import asyncio
-import websockets
 
 from enum import IntEnum
 from typing import Optional, List
@@ -92,8 +91,8 @@ class NodeBase:
 
     async def send_confirmation(self):
         """Send a confirmation of receipt to the node"""
-        CC1101.set_channel(None, self._channel)
-        await CC1101.send_data(None, 0)
+        CC1101.set_channel(self._channel)
+        await CC1101.send_data(0)
 
     def _should_be_polled(self):
         if self.type == NodeTypes.POLL:
@@ -103,21 +102,31 @@ class NodeBase:
 
     async def _wait_for_received(self):
         """Handle received packages"""
-        try:
-            data = await asyncio.wait_for(CC1101.receive_data(), timeout=self._node_timeout)
-        except asyncio.TimeoutError:
-            # ToDo: handle node timeouts
-            raise NotImplementedError
+        to_transmit = None
+        if self.type == NodeTypes.POLL:
+            timeout = datetime.datetime.now(datetime.timezone.utc) + \
+                      datetime.timedelta(seconds=self._node_timeout)
 
-        to_transmit = await self.packet_received(data)
-        if not isinstance(to_transmit, str):
-            # ToDo: handle different data classes
-            raise NotImplementedError
+            while datetime.datetime.now(datetime.timezone.utc) < timeout:
+                if CC1101.check_rx_fifo():
+                    packet = CC1101.receive_data()
+                    break
+                else:
+                    await asyncio.sleep(0.01)
+            else:
+                raise asyncio.TimeoutError  # node took longer than node_timeout seconds to respond
 
-        self._next_poll = datetime.datetime.now(datetime.timezone.utc) + \
-                          datetime.timedelta(seconds=self.poll_frequency)
+            to_transmit = await self.packet_received(packet)
+            if not isinstance(to_transmit, str):
+                # ToDo: handle different data classes
+                raise NotImplementedError
 
-
+            self._next_poll = datetime.datetime.now(datetime.timezone.utc) + \
+                              datetime.timedelta(seconds=self.poll_frequency)
+        else:
+            if CC1101.check_rx_fifo():
+                packet = CC1101.receive_packet()
+                to_transmit = await self.packet_received(packet)
 
         return to_transmit
 
@@ -127,5 +136,17 @@ class NodeBase:
 
     async def poll(self):
         """Polls the node"""
-        CC1101.set_channel(None, self._channel)
-        await CC1101.send_data(None, 0)
+        CC1101.set_channel(self._channel)
+        await CC1101.send_data(0)
+
+class TempHumNode:
+    async def packet_received(self, packet: ReceivedPacket) -> str:
+        if packet.valid:
+            data = packet.data
+            # Default temp node follows the format:
+            # example: 3332198
+            # first two digits: battery level
+            # 3rd to 5th: temperature
+            # 6th to 7th: humidity
+            to_transmit = {"Bat:": data[0:2], "Temp:": data[2:5], "Hum:": data[5:7]}
+            return str(to_transmit)

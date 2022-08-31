@@ -1,11 +1,10 @@
 import asyncio
 import bitstring
 import pigpio
-import time
 
 from typing import Optional, List, Union, Final, Tuple
 
-from .types import Config, Strobe, StatusRegister, PTR, Modulation, _CS_PINS
+from .types import Config, Strobe, StatusRegister, PTR, Modulation, _CS_PINS, State
 
 bitstring.set_lsb0(True)
 
@@ -125,7 +124,7 @@ class CC1101:
     ) -> None:
         self._spi = SPI(spi_channel, spi_cs_channel)
         self._modulation: Modulation = Modulation.GFSK
-        self._state = 0  # ToDo: change this to an Enum, 0 = Idle, 1 = RX, 2 = TX
+        self._state = State.IDLE
 
     def _split_pktctrl1(self) -> Tuple[int, int, int, int]:
         val = self._spi.read_reg(Config.PKTCTRL1)
@@ -219,39 +218,62 @@ class CC1101:
     def calibrate(self):
         self._spi.strobe(Strobe.SCAL)
 
+    def idle(self):
+        self._spi.strobe(Strobe.SIDLE)
+        self._state = State.IDLE
+
     async def send_data(self, payload: Union[str, int, bytes]):
+        self.idle()
         if isinstance(payload, str):
             payload = payload.encode()
         elif isinstance(payload, int):
             payload = payload.to_bytes(length=(-(-payload // 255)), byteorder="big")
         self._spi.write_burst(PTR.TXFIFO, list(payload))
+        self._spi.strobe(Strobe.STX)
+        self._state = State.TX
         while self._spi.read_reg(StatusRegister.MARCSTATE) != 0x01:
             await asyncio.sleep(0.001)
         self._spi.strobe(Strobe.SFTX)
+        self.idle()
 
-    async def receive_data(self):
-        # ToDo: make this stop
-        while True:
-            if self._spi.read_reg(StatusRegister.RXBYTES) & 0x7F:
-                length = self._spi.read_reg(PTR.RXFIFO).uint
-                data = self._spi.read_burst(PTR.RXFIFO, length)
-                self._spi.strobe(Strobe.SFRX)
+    # async def receive_data(self):
+    #     # ToDo: make this stop
+    #     self.idle()
+    #     self._spi.strobe(Strobe.SRX)
+    #     self._state = State.RX
+    #     while True:
+    #         if self._spi.read_reg(StatusRegister.RXBYTES) & 0x7F:
+    #             length = self._spi.read_reg(PTR.RXFIFO).uint
+    #             data = self._spi.read_burst(PTR.RXFIFO, length)
+    #             self._spi.strobe(Strobe.SFRX)
+    #
+    #             self.idle()
+    #             # ToDo: make sure putting the chip in idle state doesn't make it leak
+    #             return ReceivedPacket(data)
+    #         await asyncio.sleep(0.01)
 
-                return ReceivedPacket(data)
-            await asyncio.sleep(0.001)
+    def receive_data(self) -> Optional[ReceivedPacket]:
+        """Receive data from the RX FiFo"""
+        if self.check_rx_fifo():
+            length = self._spi.read_reg(PTR.RXFIFO).uint
+            data = self._spi.read_burst(PTR.RXFIFO, length)
+            self._spi.strobe(Strobe.SFRX)
+            return ReceivedPacket(data)
+        return None
 
-    def get_rx_fifo(self):
-        if self._state != 1:  # ToDo: change this to enum
+    def check_rx_fifo(self):
+        """Whether there is data in the RX FiFo"""
+        if self._state != State.RX:
             # ToDo: alarm users of wrong state
             raise NotImplementedError
 
         if self._spi.read_status_reg(StatusRegister.RXBYTES):
             return True
+        return False
 
-
-    def reset(self):
+    async def reset(self):
         self._spi._pi.write(self._spi.CS, 0)
-        time.sleep(0.02)
+        await asyncio.sleep(0.02)
         self._spi._pi.write(self._spi.CS, 1)
         # while self.pi.read(self._spi.MISO):
         #     time.sleep(0.001)
