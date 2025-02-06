@@ -1,0 +1,21 @@
+nodes:
+  - test:
+      name: test
+      id: 1
+      combine_sensors: True
+      sensors:
+        - battery:
+            type: poll          # push/poll
+            update_rate: 3600   # in seconds
+            packet_length: 2    # how many digits of data to expect from the sensor
+            confirmation: True  # whether to send confirmation of receipt
+        - temperature:
+            type: poll
+            update_rate: 3600
+            packet_length: 3
+            confirmation: True
+        - humidity:
+            type: poll
+            update_rate: 3600
+            packet_length: 2
+            confirmation: True
